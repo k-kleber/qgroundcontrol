@@ -119,7 +119,7 @@ jobs:
         id: prepend_commit
         run: |
           COMMIT_ID=$(echo $GITHUB_SHA | cut -c1-7)
-          echo "ARTIFACT=SuindGroundControl-${COMMIT_ID}-${{ env.VERSION_NUMBER }}.apk" >> $GITHUB_ENV
+          echo "ARTIFACT=QGroundControl-${COMMIT_ID}-${{ env.VERSION_NUMBER }}.apk" >> $GITHUB_ENV
 
       - name: Prepare APK
         working-directory: ${{ runner.temp }}/shadow_build_dir
