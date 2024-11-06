@@ -23,7 +23,6 @@ public:
     explicit QSerialPortInfo(const QSerialPort &port);
     explicit QSerialPortInfo(const QString &name);
     QSerialPortInfo(const QSerialPortInfo &other);
-    QSerialPortInfo(const QSerialPortInfoPrivate &dd);
     ~QSerialPortInfo();
 
     QSerialPortInfo& operator=(const QSerialPortInfo &other);
@@ -47,7 +46,7 @@ public:
     static QList<QSerialPortInfo> availablePorts();
 
 private:
-    // QSerialPortInfo(const QSerialPortInfoPrivate &dd);
+    QSerialPortInfo(const QSerialPortInfoPrivate &dd);
     friend QList<QSerialPortInfo> availablePortsByUdev(bool &ok);
     friend QList<QSerialPortInfo> availablePortsBySysfs(bool &ok);
     friend QList<QSerialPortInfo> availablePortsByFiltersOfDevices(bool &ok);

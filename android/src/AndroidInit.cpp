@@ -1,6 +1,6 @@
 #include "AndroidInterface.h"
 #ifndef NO_SERIAL_LINK
-    #include "AndroidSerial.h"
+    #include "qserialport.h"
 #endif
 #include "JoystickAndroid.h"
 #include <QGCLoggingCategory.h>
@@ -16,7 +16,7 @@ static jobject _class_loader = nullptr;
 #ifdef QGC_GST_STREAMING
 extern "C"
 {
-    extern void gst_amc_jni_set_java_vm(JavaVM *java_vm);
+    void gst_amc_jni_set_java_vm(JavaVM *java_vm);
 
     jobject gst_android_get_application_class_loader(void)
     {
@@ -25,7 +25,7 @@ extern "C"
 }
 #endif
 
-static void jniInit(JNIEnv *env, jobject context)
+static void jniInit(JNIEnv* env, jobject context)
 {
     qCDebug(AndroidInitLog) << Q_FUNC_INFO;
 
@@ -52,7 +52,8 @@ static jint jniSetNativeMethods()
 {
     qCDebug(AndroidInitLog) << Q_FUNC_INFO;
 
-    const JNINativeMethod javaMethods[] {
+    const JNINativeMethod javaMethods[]
+    {
         {"nativeInit", "()V", reinterpret_cast<void *>(jniInit)}
     };
 
@@ -77,13 +78,13 @@ static jint jniSetNativeMethods()
     return JNI_OK;
 }
 
-jint JNI_OnLoad(JavaVM *vm, void *reserved)
+jint JNI_OnLoad(JavaVM* vm, void* reserved)
 {
     Q_UNUSED(reserved);
 
     qCDebug(AndroidInitLog) << Q_FUNC_INFO;
 
-    JNIEnv *env;
+    JNIEnv* env;
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
         return JNI_ERR;
     }
@@ -99,7 +100,7 @@ jint JNI_OnLoad(JavaVM *vm, void *reserved)
     AndroidInterface::setNativeMethods();
 
     #ifndef NO_SERIAL_LINK
-        AndroidSerial::setNativeMethods();
+        QSerialPort::setNativeMethods();
     #endif
 
     JoystickAndroid::setNativeMethods();
