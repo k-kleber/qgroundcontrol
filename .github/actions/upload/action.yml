@@ -1,50 +1,89 @@
 name: Upload Release
-description: Uploads a built release file
+
+description: Uploads a built release file to Azure Blob Storage
+
 inputs:
   artifact_name:
-    description: Artifact name
+    description: artifact name
+
     required: true
-  aws_key_id:
-    description: AWS access key ID
-    required: false
-  aws_secret_access_key:
-    description: AWS secret access key
-    required: false
+
+  upload_to_azure:
+    description: upload to Azure Blob Storage
+
+    required: true
+
+  azure_storage_account_name:
+    description: Azure storage account name
+
+    required: true
+
+  azure_storage_account_key:
+    description: Azure storage account key
+
+    required: true
+
+  container_name:
+    description: Azure Blob Storage container name
+
+    required: true
+
   source:
-    description: Source location
+    description: source location
+
     required: false
-    default: package
-  github_token:
-    description: GitHub Token
-    required: false
+
+    default: ""
 
 runs:
   using: "composite"
+
   steps:
     - name: Save artifact
+
       uses: actions/upload-artifact@v4
+
       with:
         name: ${{ inputs.artifact_name }}
+
         path: ${{ runner.temp }}/shadow_build_dir/${{ inputs.source }}/${{ inputs.artifact_name }}
 
-    - name: Configure AWS Credentials
-      if: ${{ github.event_name == 'push' && !github.event.pull_request.head.repo.fork && inputs.aws_key_id != '' && inputs.aws_secret_access_key != '' }}
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ inputs.aws_key_id }}
-        aws-secret-access-key: ${{ inputs.aws_secret_access_key }}
-        aws-region: us-west-2
+    - name: Install Azure CLI
+      if: inputs.upload_to_azure == 'true'
+      run: |
 
-    - name: Upload stable build to S3 Bucket
-      if: ${{ github.event_name == 'push' && !github.event.pull_request.head.repo.fork && inputs.aws_key_id != '' && inputs.aws_secret_access_key != '' }}
-      working-directory: ${{ runner.temp }}/shadow_build_dir/${{ inputs.source }}
-      run: aws s3 cp ${{ inputs.artifact_name }} s3://qgroundcontrol/builds/${{ github.ref_name }}/${{ inputs.artifact_name }} --acl public-read
+        curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
       shell: bash
 
-    - name: Upload tagged stable build to S3 latest Bucket
-      if: ${{ github.event_name == 'push' && github.ref_type == 'tag' && !github.event.pull_request.head.repo.fork && inputs.aws_key_id != '' && inputs.aws_secret_access_key != '' }}
+    - name: Upload build to Azure Blob Storage
+      if: github.event_name == 'push' && inputs.upload_to_azure == 'true'
       working-directory: ${{ runner.temp }}/shadow_build_dir/${{ inputs.source }}
-      run: aws s3 cp ${{ inputs.artifact_name }} s3://qgroundcontrol/latest/${{ inputs.artifact_name }} --acl public-read
+      env:
+        ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        AZURE_ACCOUNT_NAME: ${{ inputs.azure_storage_account_name }}
+        AZURE_ACCOUNT_KEY: ${{ inputs.azure_storage_account_key }}
+        CONTAINER_NAME: ${{ inputs.container_name }}
+      run: |
+        FILE_PATH="${{ runner.temp }}/shadow_build_dir/${{ inputs.source }}/${ARTIFACT_NAME}"
+        if [ -f "$FILE_PATH" ]; then
+          echo "Starting upload of ${ARTIFACT_NAME} to Azure Blob Storage..."
+          az storage blob upload \
+            --account-name $AZURE_ACCOUNT_NAME \
+            --account-key $AZURE_ACCOUNT_KEY \
+            --container-name $CONTAINER_NAME \
+            --name $ARTIFACT_NAME \
+            --file "$FILE_PATH"
+          echo "Upload completed for ${ARTIFACT_NAME}."
+          echo "Debug Information:"
+          echo "Artifact Name: $ARTIFACT_NAME"
+          echo "Container Name: $CONTAINER_NAME"
+          echo "File Path: $FILE_PATH"
+          echo "File Size: $(stat -c %s "$FILE_PATH") bytes"
+        else
+          echo "File $FILE_PATH does not exist."
+          exit 1
+        fi
       shell: bash
 
     - name: Create Continuous Release

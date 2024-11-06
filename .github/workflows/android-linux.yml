@@ -3,21 +3,11 @@ name: Android-Linux
 on:
   push:
     branches:
-      - master
-      - 'Stable*'
-    tags:
-      - 'v*'
+      - "android/*"
     paths-ignore:
-      - 'deploy/**'
-      - 'docs/**'
-  pull_request:
-    paths-ignore:
-      - 'deploy/**'
-      - 'docs/**'
-      - '.github/workflows/docs_deploy.yml'
-      - '.github/workflows/linux.yml'
-      - '.github/workflows/macos.yml'
-      - '.github/workflows/windows.yml'
+      - "deploy/**"
+      - "docs/**"
+      - ".github/workflows/archive/**"
 
 jobs:
   build:
@@ -32,14 +22,15 @@ jobs:
         shell: bash
 
     env:
-      ARTIFACT: QGroundControl.apk
+      ARTIFACT: SuindGroundControl.apk
       QT_VERSION: 6.6.3
       GST_VERSION: 1.22.12
-      QT_ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/deploy/android/android_release.keystore
-      QT_ANDROID_KEYSTORE_ALIAS: QGCAndroidKeyStore
-      QT_ANDROID_KEYSTORE_STORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      QT_ANDROID_KEYSTORE_KEY_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      QT_ANDROID_ABIS: ${{ matrix.BuildType == 'Release' && 'armeabi-v7a;arm64-v8a' || 'arm64-v8a' }}
+      QT_ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/deploy/android/android_suind_release.keystore
+      QT_ANDROID_KEYSTORE_ALIAS: ${{ secrets.QT_ANDROID_KEYSTORE_ALIAS }}
+      QT_ANDROID_KEYSTORE_STORE_PASS: ${{ secrets.QT_ANDROID_KEYSTORE_STORE_PASS }}
+      QT_ANDROID_KEYSTORE_KEY_PASS: ${{ secrets.QT_ANDROID_KEYSTORE_STORE_PASS }}
+      QT_ANDROID_ABIS: "arm64-v8a"
+      VERSION_NUMBER: v0.0.0
 
     steps:
       - name: Free Disk Space (Ubuntu)
@@ -81,29 +72,65 @@ jobs:
               -DQT_ANDROID_ABIS="${{ env.QT_ANDROID_ABIS }}"
               -DQT_ANDROID_BUILD_ALL_ABIS=OFF
               -DQT_HOST_PATH="${{ env.QT_ROOT_DIR }}/../gcc_64"
-              -DQT_ANDROID_SIGN_APK=${{ github.ref == 'refs/heads/master' && github.event_name != 'pull_request' && 'ON' || 'OFF' }}
+              -DQT_ANDROID_SIGN_APK=ON
               -DQT_DEBUG_FIND_PACKAGE=ON
-              -DQGC_STABLE_BUILD=${{ github.ref_type == 'tag' || contains(github.ref, 'Stable') && 'ON' || 'OFF' }}
+              -DQGC_STABLE_BUILD=ON
 
       - name: Build
         working-directory: ${{ runner.temp }}/shadow_build_dir
         run: cmake --build . --target all --config ${{ matrix.BuildType }}
 
-      - run: cp ${{ runner.temp }}/shadow_build_dir/android-build/*.apk ${{ runner.temp }}/shadow_build_dir/${{ env.ARTIFACT }}
+      - name: Check if APK exists
+        id: check_apk
+        working-directory: ${{ runner.temp }}/shadow_build_dir
+        run: |
+          if ls ./android-build/*.apk 1> /dev/null 2>&1; then
+            echo "APK exists."
+          else
+            echo "APK does not exist."
+            exit 1
+          fi
+
+      - name: Create new git tag
+        id: create_tag
+        if: steps.create_tag.outputs.exit_code == 0 &&  (github.ref == 'refs/heads/android/production' || github.ref == 'refs/heads/android/development')
+        run: |
+          # Create a new tag with the incremented version
+          git config --global user.email "${{ github.event.pusher.email }}"
+          git config --global user.name "${{ github.actor }}"
+          git tag ${{ env.VERSION_NUMBER }}
+          git push origin ${{ env.VERSION_NUMBER }}
+
+      - name: Create Release
+        id: create_release
+        if: steps.create_tag.outputs.exit_code == 0 && github.ref == 'refs/heads/android/production'
+        uses: actions/create-release@latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.VERSION_NUMBER }}
+          release_name: Release  ${{ github.ref }}:${{ env.VERSION_NUMBER }}
+          body: |
+            Release created for branch ${{ github.ref }} commit ${{ github.sha }} and version ${{ env.VERSION_NUMBER }}.
+          draft: false
+          prerelease: false
+
+      - name: Prepend commit ID to artifact name
+        id: prepend_commit
+        run: |
+          COMMIT_ID=$(echo $GITHUB_SHA | cut -c1-7)
+          echo "ARTIFACT=QGroundControl-${COMMIT_ID}-${{ env.VERSION_NUMBER }}.apk" >> $GITHUB_ENV
+
+      - name: Prepare APK
+        working-directory: ${{ runner.temp }}/shadow_build_dir
+        run: mv ./android-build/*.apk ./${{ env.ARTIFACT }}
 
       - name: Upload Build File
-        if: matrix.BuildType == 'Release'
+        if: steps.check_apk.outputs.exit_code == 0
         uses: ./.github/actions/upload
         with:
-          artifact_name: ${{ env.ARTIFACT }}
-          aws_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          source: ''
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      # - name: Deploy to Play Store
-      #   if: matrix.BuildType == 'Release'
-      #   uses: ./.github/actions/playstore
-      #   with:
-      #     artifact_name: ${{ runner.temp }}/shadow_build_dir/${{ env.ARTIFACT }}
-      #     service_account_json: ${{ secrets.SERVICE_ACCOUNT }}
+          artifact_name: ${{ env.ARTIFACT}}
+          azure_storage_account_name: ${{ vars.BLOB_ACCOUNT_NAME }}
+          azure_storage_account_key: ${{ secrets.BLOB_KEY }}
+          container_name: ${{ vars.BLOB_CONTAINER }}
+          upload_to_azure: ${{ github.ref == 'refs/heads/android/production' || github.ref == 'refs/heads/android/development' }}
